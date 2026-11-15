@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Load gpu_unlock before udev's 80-drivers.rules can load nvidia. It does
+# nothing unless gpu_unlock.targets= is on the kernel command line.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x03*", RUN+="/sbin/gpu-unlock-load"
