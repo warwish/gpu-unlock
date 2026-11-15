@@ -11,6 +11,8 @@ DKMSDIR    ?= /usr/src/gpu-unlock-$(VERSION)
 FWDIR      ?= /usr/lib/firmware/gpu-unlock/$(NV)
 LICENSEDIR ?= /usr/share/licenses
 PKG        ?= gpu-unlock
+KVER       ?= $(shell uname -r)
+KDIR       ?= /lib/modules/$(KVER)/build
 
 MODULE_FILES   := $(filter-out %.mod.c,$(sort $(wildcard kernel/gpu_unlock/*.[ch]))) \
                   kernel/gpu_unlock/Kbuild kernel/gpu_unlock/Makefile kernel/gpu_unlock/dkms.conf
@@ -23,12 +25,13 @@ LICENSES       := licenses/GPL-2.0.txt licenses/CMP40HX-MIT.txt licenses/NVIDIA-
 NV_SOURCE      := NVIDIA-kernel-module-source-$(NV)
 NV_INSTALLER   := NVIDIA-Linux-x86_64-$(NV)-no-compat32.run
 
-TARBALL := $(abspath $(DISTDIR))/gpu-unlock-$(VERSION).tar.xz
-DEBDIR  := $(abspath $(DISTDIR))/deb
-RPMDIR  := $(abspath $(DISTDIR))/rpm
-DEBS    := $(foreach p,dkms firmware,$(DEBDIR)/gpu-unlock-$(p)_$(VERSION)_all.deb)
+TARBALL   := $(abspath $(DISTDIR))/gpu-unlock-$(VERSION).tar.xz
+DEBDIR    := $(abspath $(DISTDIR))/deb
+RPMDIR    := $(abspath $(DISTDIR))/rpm
+INITRDDIR ?= $(abspath $(DISTDIR))/initrd
+DEBS      := $(foreach p,dkms firmware,$(DEBDIR)/gpu-unlock-$(p)_$(VERSION)_all.deb)
 
-.PHONY: all dist inputs firmware assets install-dkms install-firmware \
+.PHONY: all dist inputs firmware assets initrd install-dkms install-firmware \
         install-mkinitcpio install-initramfs-tools install-dracut \
         install-licenses arch deb rpm install install-arch install-deb install-rpm \
         test-module test-packages
@@ -58,6 +61,24 @@ firmware:
 
 assets: inputs
 	$(MAKE) firmware
+
+# Initrd overlay skeleton (compiled module, firmware, and udev loader hook for
+# genkernel --initramfs-overlay or initrd repacking).
+initrd:
+	set -eu; for f in $(FIRMWARE_FILES); do \
+		[ -f "$(ASSETS)/$$f" ] || { $(MAKE) assets || exit 1; break; }; \
+	done
+	rm -rf $(INITRDDIR) $(INITRDDIR).src
+	mkdir -p $(INITRDDIR).src
+	cp -t $(INITRDDIR).src $(MODULE_FILES)
+	set -eu; kdir=$$(realpath "$(KDIR)"); \
+	kver=$$($(MAKE) -s -C "$$kdir" kernelrelease); \
+	$(MAKE) -C $(INITRDDIR).src KDIR="$$kdir"; \
+	install -Dm644 $(INITRDDIR).src/gpu_unlock.ko $(INITRDDIR)/lib/modules/$$kver/extra/gpu_unlock.ko
+	rm -rf $(INITRDDIR).src
+	install -Dm644 -t $(INITRDDIR)/lib/firmware/gpu-unlock/$(NV) $(addprefix $(ASSETS)/,$(FIRMWARE_FILES))
+	install -Dm644 packaging/boot/genkernel.rules $(INITRDDIR)/etc/udev/rules.d/10-gpu-unlock.rules
+	install -Dm755 packaging/boot/genkernel-load $(INITRDDIR)/sbin/gpu-unlock-load
 
 # The module source. It does nothing unless gpu_unlock.targets= is on the
 # kernel command line.

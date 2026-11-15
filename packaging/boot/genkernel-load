@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# Load gpu_unlock in the initramfs, updating modules.dep first if it was
+# injected via overlay after genkernel built the module index. Does nothing
+# unless gpu_unlock.targets= is on the kernel command line.
+[ -d /sys/module/gpu_unlock ] && exit 0
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+if command -v flock >/dev/null 2>&1; then
+	mkdir -p /run
+	exec 9>/run/gpu-unlock.lock
+	flock 9
+	[ -d /sys/module/gpu_unlock ] && exit 0
+fi
+modprobe -q gpu_unlock 2>/dev/null || { depmod -a 2>/dev/null && modprobe -q gpu_unlock 2>/dev/null; } || true
